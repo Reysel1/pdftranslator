@@ -50,15 +50,9 @@ const PDF_TARGET_LANGS = [
   { label: "German", value: "de" },
   { label: "Italian", value: "it" },
   { label: "Portuguese", value: "pt" },
-  { label: "Chinese Simplified", value: "zh-CN" },
-  { label: "Japanese", value: "ja" },
-  { label: "Korean", value: "ko" },
-  { label: "Russian", value: "ru" },
-  { label: "Arabic", value: "ar" },
-  { label: "Hindi", value: "hi" },
-  { label: "Turkish", value: "tr" },
   { label: "Dutch", value: "nl" },
-  { label: "Polish", value: "pl" },
+  { label: "Catalan", value: "ca" },
+  { label: "Galician", value: "gl" },
 ];
 
 const surface =

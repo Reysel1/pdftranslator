@@ -7,10 +7,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export const NON_LATIN_LANGUAGES: string[] = [];
 
-const RENDER_SCALE = 2;
 const LINE_GROUP_TOLERANCE = 2;
 const YIELD_EVERY_N_PAGES = 6;
 const PAGES_PER_CHUNK = 12;
+const MIN_FONT_SIZE_PT = 5;
 
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -37,7 +37,6 @@ interface PdfLine {
 interface PageData {
   pageWidth: number;
   pageHeight: number;
-  canvas: HTMLCanvasElement;
   lines: PdfLine[];
   originalPageNumber: number;
 }
@@ -126,16 +125,7 @@ export interface TranslatePdfOptions {
 
 async function extractPageData(pdf: PDFDocumentProxy, pageNum: number): Promise<PageData> {
   const page = await pdf.getPage(pageNum);
-  const viewport = page.getViewport({ scale: RENDER_SCALE });
-
-  const canvas = document.createElement("canvas");
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not get 2D canvas context");
-
-  await page.render({ canvasContext: ctx, viewport, canvas }).promise;
-
+  const viewport = page.getViewport({ scale: 1 });
   const textContent = await page.getTextContent();
   const items: PdfTextItem[] = [];
   for (const raw of textContent.items) {
@@ -160,67 +150,55 @@ async function extractPageData(pdf: PDFDocumentProxy, pageNum: number): Promise<
     });
   }
 
+  try {
+    page.cleanup();
+  } catch {
+    // ignore
+  }
+
   const lines = groupItemsIntoLines(items);
   return {
-    pageWidth: viewport.width / RENDER_SCALE,
-    pageHeight: viewport.height / RENDER_SCALE,
-    canvas,
+    pageWidth: viewport.width,
+    pageHeight: viewport.height,
     lines,
     originalPageNumber: pageNum,
   };
 }
 
-function renderPageLinesToCanvas(ctx: CanvasRenderingContext2D, page: PageData) {
+function writePageTextToDoc(doc: jsPDF, page: PageData) {
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(0, 0, 0);
+
   for (const line of page.lines) {
-    const canvasX = line.x * RENDER_SCALE;
-    const canvasYBaseline = page.canvas.height - line.y * RENDER_SCALE;
-    const canvasFontSize = line.fontSize * RENDER_SCALE;
-    const padding = canvasFontSize * 0.2;
-    const boxX = canvasX - padding;
-    const boxY = canvasYBaseline - canvasFontSize - padding;
-    const boxWidth = line.width * RENDER_SCALE + padding * 2;
-    const boxHeight = canvasFontSize + padding * 2;
+    if (!line.text) continue;
 
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+    let fontSize = Math.max(line.fontSize, MIN_FONT_SIZE_PT);
+    doc.setFontSize(fontSize);
 
-    let fontSize = canvasFontSize;
-    ctx.fillStyle = "#000000";
-    ctx.textBaseline = "alphabetic";
-    ctx.font = `${fontSize}px Helvetica, Arial, sans-serif`;
+    let textWidth = doc.getTextWidth(line.text);
+    const maxWidth = Math.max(line.width, fontSize);
 
-    const maxWidth = line.width * RENDER_SCALE;
-    let measured = ctx.measureText(line.text).width;
-    const minFontSize = Math.max(canvasFontSize * 0.5, 6);
-    while (measured > maxWidth && fontSize > minFontSize) {
-      fontSize -= 0.5;
-      ctx.font = `${fontSize}px Helvetica, Arial, sans-serif`;
-      measured = ctx.measureText(line.text).width;
+    while (textWidth > maxWidth && fontSize > MIN_FONT_SIZE_PT) {
+      fontSize = Math.max(fontSize - 0.5, MIN_FONT_SIZE_PT);
+      doc.setFontSize(fontSize);
+      textWidth = doc.getTextWidth(line.text);
     }
 
-    if (measured > maxWidth) {
-      const words = line.text.split(/\s+/);
-      const lines: string[] = [];
-      let current = "";
-      for (const w of words) {
-        const candidate = current ? current + " " + w : w;
-        if (ctx.measureText(candidate).width <= maxWidth) {
-          current = candidate;
-        } else {
-          if (current) lines.push(current);
-          current = w;
-        }
-      }
-      if (current) lines.push(current);
+    // Convert pdf.js coordinate (origin at bottom-left, y is baseline up)
+    // to jsPDF coordinate (origin at top-left, y is from top, alphabetic baseline).
+    const x = line.x;
+    const yFromTop = page.pageHeight - line.y;
 
-      const lineHeight = fontSize * 1.05;
-      let y = canvasYBaseline;
-      for (const l of lines) {
-        ctx.fillText(l, canvasX, y);
+    if (textWidth > maxWidth) {
+      const wrapped = doc.splitTextToSize(line.text, maxWidth) as string[];
+      const lineHeight = fontSize * 1.1;
+      let y = yFromTop;
+      for (const segment of wrapped) {
+        doc.text(segment, x, y, { baseline: "alphabetic" });
         y += lineHeight;
       }
     } else {
-      ctx.fillText(line.text, canvasX, canvasYBaseline);
+      doc.text(line.text, x, yFromTop, { baseline: "alphabetic" });
     }
   }
 }
@@ -287,36 +265,21 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
     for (let k = 0; k < pages.length; k++) {
       const page = pages[k]!;
       const globalIdx = chunkStart + k;
-      const ctx = page.canvas.getContext("2d");
-      if (!ctx) continue;
-      renderPageLinesToCanvas(ctx, page);
 
-      const dataUrl = page.canvas.toDataURL("image/jpeg", 0.85);
+      const orientation = page.pageWidth > page.pageHeight ? "landscape" : "portrait";
       if (isFirstPdfPage) {
         doc = new jsPDF({
           unit: "pt",
           format: [page.pageWidth, page.pageHeight],
-          orientation: page.pageWidth > page.pageHeight ? "landscape" : "portrait",
+          orientation,
         });
         isFirstPdfPage = false;
       } else {
-        doc!.addPage(
-          [page.pageWidth, page.pageHeight],
-          page.pageWidth > page.pageHeight ? "landscape" : "portrait",
-        );
+        doc!.addPage([page.pageWidth, page.pageHeight], orientation);
       }
-      doc!.addImage(
-        dataUrl,
-        "JPEG",
-        0,
-        0,
-        page.pageWidth,
-        page.pageHeight,
-        undefined,
-        "FAST",
-      );
-      page.canvas.width = 0;
-      page.canvas.height = 0;
+
+      writePageTextToDoc(doc!, page);
+
       onProgress?.(globalIdx + 1, n, "rendering");
       if (k % YIELD_EVERY_N_PAGES === YIELD_EVERY_N_PAGES - 1 && k < pages.length - 1) {
         await yieldToMain();
@@ -332,5 +295,13 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
   }
 
   const blob = doc.output("blob");
+
+  try {
+    await pdf.cleanup();
+    await pdf.destroy();
+  } catch {
+    // ignore cleanup errors
+  }
+
   return { blob, plainTexts: translatedPagePlain };
 }
