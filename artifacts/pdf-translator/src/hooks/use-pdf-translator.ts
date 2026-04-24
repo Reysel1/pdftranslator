@@ -1,16 +1,17 @@
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { jsPDF } from "jspdf";
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
 export const NON_LATIN_LANGUAGES: string[] = [];
 
 const LINE_GROUP_TOLERANCE = 2;
-const YIELD_EVERY_N_PAGES = 6;
+const YIELD_EVERY_N_PAGES = 4;
 const PAGES_PER_CHUNK = 12;
 const MIN_FONT_SIZE_PT = 5;
+const COVER_PADDING_RATIO = 0.18;
 
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -165,47 +166,62 @@ async function extractPageData(pdf: PDFDocumentProxy, pageNum: number): Promise<
   };
 }
 
-function writePageTextToDoc(doc: jsPDF, page: PageData) {
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(0, 0, 0);
-
-  for (const line of page.lines) {
-    if (!line.text) continue;
-
-    let fontSize = Math.max(line.fontSize, MIN_FONT_SIZE_PT);
-    doc.setFontSize(fontSize);
-
-    let textWidth = doc.getTextWidth(line.text);
-    const maxWidth = Math.max(line.width, fontSize);
-
-    while (textWidth > maxWidth && fontSize > MIN_FONT_SIZE_PT) {
-      fontSize = Math.max(fontSize - 0.5, MIN_FONT_SIZE_PT);
-      doc.setFontSize(fontSize);
-      textWidth = doc.getTextWidth(line.text);
-    }
-
-    // Convert pdf.js coordinate (origin at bottom-left, y is baseline up)
-    // to jsPDF coordinate (origin at top-left, y is from top, alphabetic baseline).
-    const x = line.x;
-    const yFromTop = page.pageHeight - line.y;
-
-    if (textWidth > maxWidth) {
-      const wrapped = doc.splitTextToSize(line.text, maxWidth) as string[];
-      const lineHeight = fontSize * 1.1;
-      let y = yFromTop;
-      for (const segment of wrapped) {
-        doc.text(segment, x, y, { baseline: "alphabetic" });
-        y += lineHeight;
-      }
-    } else {
-      doc.text(line.text, x, yFromTop, { baseline: "alphabetic" });
-    }
-  }
+// pdf-lib's standard fonts use WinAnsi encoding which can't represent
+// every Unicode code point. We strip/replace unsupported chars so drawText
+// never throws and the document still gets generated.
+function sanitizeForWinAnsi(text: string): string {
+  return text
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ")
+    .replace(/[^\x00-\x7F\u00A1-\u00FF\u0152\u0153\u0160\u0161\u0178\u017D\u017E\u0192\u02C6\u02DC\u2030\u2039\u203A\u20AC\u2122]/g, "?");
 }
 
-export async function translateOnePdf({ file, targetLang, translator, pageRange, onProgress }: TranslatePdfOptions): Promise<{ blob: Blob; plainTexts: string[] }> {
+function fitFontSize(font: PDFFont, text: string, maxWidth: number, startSize: number): number {
+  let size = Math.max(startSize, MIN_FONT_SIZE_PT);
+  let width = font.widthOfTextAtSize(text, size);
+  while (width > maxWidth && size > MIN_FONT_SIZE_PT) {
+    size = Math.max(size - 0.5, MIN_FONT_SIZE_PT);
+    width = font.widthOfTextAtSize(text, size);
+  }
+  return size;
+}
+
+function wrapText(font: PDFFont, text: string, maxWidth: number, fontSize: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [text];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? current + " " + word : word;
+    if (font.widthOfTextAtSize(candidate, fontSize) <= maxWidth) {
+      current = candidate;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+export async function translateOnePdf({
+  file,
+  targetLang,
+  translator,
+  pageRange,
+  onProgress,
+}: TranslatePdfOptions): Promise<{ blob: Blob; plainTexts: string[] }> {
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  // pdf-lib mutates the buffer it loads, and we also need it for pdfjs.
+  // Pass copies so each parser owns its own bytes.
+  const pdfjsBuffer = arrayBuffer.slice(0);
+  const pdfLibBuffer = arrayBuffer.slice(0);
+
+  const pdf = await pdfjsLib.getDocument({ data: pdfjsBuffer }).promise;
   const totalPages = pdf.numPages;
 
   const pagesToProcess = parsePageRange(pageRange || "", totalPages);
@@ -214,11 +230,11 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
     throw new Error("No pages to render");
   }
 
+  const outDoc = await PDFDocument.load(pdfLibBuffer, { ignoreEncryption: true });
+  const helvetica = await outDoc.embedFont(StandardFonts.Helvetica);
+
   const translatedPagePlain: string[] = new Array(n);
   onProgress?.(0, n, "extracting");
-
-  let doc: jsPDF | null = null;
-  let isFirstPdfPage = true;
 
   for (let chunkStart = 0; chunkStart < n; chunkStart += PAGES_PER_CHUNK) {
     const chunkEnd = Math.min(chunkStart + PAGES_PER_CHUNK, n);
@@ -247,9 +263,14 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
         onProgress?.(globalIdx + 1, n, "translating");
         continue;
       }
-      const translatedLines = await translator(page.lines.map((l) => l.text), targetLang, "auto");
+      const translatedLines = await translator(
+        page.lines.map((l) => l.text),
+        targetLang,
+        "auto",
+      );
       for (let j = 0; j < page.lines.length; j++) {
-        page.lines[j]!.text = translatedLines[j] ?? page.lines[j]!.text;
+        const t = translatedLines[j] ?? page.lines[j]!.text;
+        page.lines[j]!.text = sanitizeForWinAnsi(t);
       }
       translatedPagePlain[globalIdx] = page.lines.map((l) => l.text).join("\n");
       onProgress?.(globalIdx + 1, n, "translating");
@@ -265,20 +286,59 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
     for (let k = 0; k < pages.length; k++) {
       const page = pages[k]!;
       const globalIdx = chunkStart + k;
+      const pdfPage = outDoc.getPage(page.originalPageNumber - 1);
 
-      const orientation = page.pageWidth > page.pageHeight ? "landscape" : "portrait";
-      if (isFirstPdfPage) {
-        doc = new jsPDF({
-          unit: "pt",
-          format: [page.pageWidth, page.pageHeight],
-          orientation,
+      for (const line of page.lines) {
+        if (!line.text) continue;
+
+        const padding = Math.max(line.fontSize * COVER_PADDING_RATIO, 1);
+        const boxX = line.x - padding;
+        const boxY = line.y - padding;
+        const boxWidth = line.width + padding * 2;
+        const boxHeight = line.fontSize + padding * 2;
+
+        // Cover the original glyphs with an opaque white rectangle.
+        pdfPage.drawRectangle({
+          x: boxX,
+          y: boxY,
+          width: boxWidth,
+          height: boxHeight,
+          color: rgb(1, 1, 1),
+          borderWidth: 0,
         });
-        isFirstPdfPage = false;
-      } else {
-        doc!.addPage([page.pageWidth, page.pageHeight], orientation);
-      }
 
-      writePageTextToDoc(doc!, page);
+        const maxWidth = line.width;
+        const startSize = Math.max(line.fontSize, MIN_FONT_SIZE_PT);
+        let size = fitFontSize(helvetica, line.text, maxWidth, startSize);
+        const fits = helvetica.widthOfTextAtSize(line.text, size) <= maxWidth;
+
+        if (fits) {
+          pdfPage.drawText(line.text, {
+            x: line.x,
+            y: line.y,
+            size,
+            font: helvetica,
+            color: rgb(0, 0, 0),
+          });
+        } else {
+          // Translation is too long even at min size. Wrap onto multiple
+          // sublines using the original font size as the line height.
+          size = MIN_FONT_SIZE_PT;
+          const wrapped = wrapText(helvetica, line.text, maxWidth, size);
+          const lineHeight = size * 1.1;
+          let y = line.y;
+          for (const segment of wrapped) {
+            pdfPage.drawText(segment, {
+              x: line.x,
+              y,
+              size,
+              font: helvetica,
+              color: rgb(0, 0, 0),
+            });
+            y -= lineHeight;
+          }
+        }
+      }
 
       onProgress?.(globalIdx + 1, n, "rendering");
       if (k % YIELD_EVERY_N_PAGES === YIELD_EVERY_N_PAGES - 1 && k < pages.length - 1) {
@@ -290,11 +350,17 @@ export async function translateOnePdf({ file, targetLang, translator, pageRange,
     await yieldToMain();
   }
 
-  if (!doc) {
-    throw new Error("No pages to render");
+  // If a page range was provided and it doesn't cover the whole document,
+  // strip pages that weren't requested. Remove from highest index downwards.
+  if (n < totalPages) {
+    const keep = new Set(pagesToProcess);
+    for (let p = totalPages; p >= 1; p--) {
+      if (!keep.has(p)) outDoc.removePage(p - 1);
+    }
   }
 
-  const blob = doc.output("blob");
+  const bytes = await outDoc.save({ useObjectStreams: true });
+  const blob = new Blob([new Uint8Array(bytes)], { type: "application/pdf" });
 
   try {
     await pdf.cleanup();
