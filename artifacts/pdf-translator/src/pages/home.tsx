@@ -224,7 +224,7 @@ export default function Home() {
         />
 
         <header className="pointer-events-none fixed left-0 right-0 top-0 z-50 flex justify-center px-4 pt-4">
-          <nav className="pointer-events-auto flex w-full max-w-6xl items-center justify-between gap-2 rounded-full border border-zinc-200/90 bg-white/90 px-3 py-2 pl-3 shadow-sm backdrop-blur-md dark:border-zinc-800/90 dark:bg-zinc-900/90 sm:gap-3 sm:pl-4">
+          <nav className="pointer-events-auto flex w-full max-w-6xl items-center justify-between gap-2 rounded-full border border-zinc-200/90 px-3 py-2 pl-3 shadow-sm backdrop-blur-md dark:border-zinc-800/90 dark:bg-zinc-900/90 sm:gap-3 sm:pl-4 text-[18px] font-bold border-t-[#333333e6] border-r-[#333333e6] border-b-[#333333e6] border-l-[#333333e6] bg-[#141212e6]">
             <a href="#panel" className="flex min-w-0 items-center gap-2.5 text-zinc-900 dark:text-zinc-100">
               <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-zinc-200/90 bg-zinc-100/90 dark:border-zinc-700 dark:bg-zinc-950">
                 <FileText className="h-4 w-4 text-zinc-700 dark:text-zinc-200" strokeWidth={2} />
