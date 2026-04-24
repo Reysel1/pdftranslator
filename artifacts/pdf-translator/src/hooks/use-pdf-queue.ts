@@ -13,7 +13,9 @@ export interface QueueItem {
   error?: string;
 }
 
-const TRANSLATE_CONCURRENCY = 5;
+const TRANSLATE_CONCURRENCY = 16;
+const MAX_BATCH_CHARS = 3800;
+const LINE_SEP = "\n";
 
 async function fetchTranslatedChunk(
   chunk: string,
@@ -55,6 +57,63 @@ async function translateOneString(text: string, target: string, source: string):
   return parts.join("");
 }
 
+interface Batch {
+  indices: number[];
+  combined: string;
+}
+
+function buildBatches(texts: string[]): Batch[] {
+  const batches: Batch[] = [];
+  let current: Batch = { indices: [], combined: "" };
+
+  for (let i = 0; i < texts.length; i++) {
+    const t = texts[i] ?? "";
+    if (!t.trim() || t.length > MAX_BATCH_CHARS) {
+      if (current.indices.length > 0) {
+        batches.push(current);
+        current = { indices: [], combined: "" };
+      }
+      batches.push({ indices: [i], combined: t });
+      continue;
+    }
+    const sepLen = current.indices.length === 0 ? 0 : LINE_SEP.length;
+    if (current.combined.length + sepLen + t.length > MAX_BATCH_CHARS && current.indices.length > 0) {
+      batches.push(current);
+      current = { indices: [], combined: "" };
+    }
+    current.indices.push(i);
+    current.combined = current.indices.length === 1 ? t : current.combined + LINE_SEP + t;
+  }
+
+  if (current.indices.length > 0) batches.push(current);
+  return batches;
+}
+
+async function translateBatch(batch: Batch, target: string, source: string): Promise<string[]> {
+  if (batch.indices.length === 1) {
+    const idx = batch.indices[0]!;
+    const out = new Array<string>(1);
+    out[0] = await translateOneString(batch.combined, target, source);
+    void idx;
+    return out;
+  }
+
+  const translated = await translateOneString(batch.combined, target, source);
+  const parts = translated.split(/\r?\n/);
+
+  if (parts.length === batch.indices.length) {
+    return parts;
+  }
+
+  // Fallback: line-count mismatch (translator dropped/added newlines).
+  // Translate each entry individually to guarantee a 1:1 mapping.
+  const sources = batch.combined.split(LINE_SEP);
+  const fallback = await Promise.all(
+    sources.map((s) => translateOneString(s, target, source)),
+  );
+  return fallback;
+}
+
 export async function translateClientSide(
   texts: string[],
   target: string,
@@ -62,17 +121,30 @@ export async function translateClientSide(
 ): Promise<string[]> {
   const n = texts.length;
   const out: string[] = new Array(n);
+
+  const batches = buildBatches(texts);
   let next = 0;
+
   const worker = async () => {
     for (;;) {
       const i = next++;
-      if (i >= n) return;
-      out[i] = await translateOneString(texts[i]!, target, source);
+      if (i >= batches.length) return;
+      const batch = batches[i]!;
+      const results = await translateBatch(batch, target, source);
+      for (let j = 0; j < batch.indices.length; j++) {
+        out[batch.indices[j]!] = results[j] ?? texts[batch.indices[j]!]!;
+      }
     }
   };
+
   await Promise.all(
-    Array.from({ length: Math.min(TRANSLATE_CONCURRENCY, n) }, () => worker()),
+    Array.from({ length: Math.min(TRANSLATE_CONCURRENCY, batches.length) }, () => worker()),
   );
+
+  for (let i = 0; i < n; i++) {
+    if (out[i] === undefined) out[i] = texts[i]!;
+  }
+
   return out;
 }
 
