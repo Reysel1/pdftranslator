@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: translate
+    description: Translation operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /translate:
+    post:
+      operationId: translateTexts
+      tags: [translate]
+      summary: Translate a batch of text strings
+      description: Translate an array of text strings to the target language using a free translation backend.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TranslateRequest"
+      responses:
+        "200":
+          description: Translated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TranslateResponse"
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    TranslateRequest:
+      type: object
+      properties:
+        texts:
+          type: array
+          items:
+            type: string
+        target:
+          type: string
+          description: Target language code (e.g. "es", "en", "fr")
+        source:
+          type: string
+          description: Source language code, or "auto" for auto-detection
+      required:
+        - texts
+        - target
+    TranslateResponse:
+      type: object
+      properties:
+        translations:
+          type: array
+          items:
+            type: string
+      required:
+        - translations
