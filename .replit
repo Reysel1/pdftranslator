@@ -2,9 +2,7 @@ modules = ["nodejs-24"]
 
 [deployment]
 router = "application"
-deploymentTarget = "static"
-build = ["sh", "-c", "PORT=5000 BASE_PATH=/ pnpm --filter @workspace/pdf-translator run build"]
-publicDir = "artifacts/pdf-translator/dist/public"
+deploymentTarget = "autoscale"
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
