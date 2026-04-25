@@ -2,8 +2,11 @@ services:
   - type: web
     name: pdf-translator
     runtime: static
-    buildCommand: corepack enable && NODE_ENV=development pnpm install --frozen-lockfile && NODE_ENV=production pnpm run build
+    buildCommand: npm run render:build
     staticPublishPath: ./artifacts/pdf-translator/dist/public
+    envVars:
+      - key: SKIP_INSTALL_DEPS
+        value: "true"
     routes:
       - type: rewrite
         source: /*
