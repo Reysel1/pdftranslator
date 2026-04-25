@@ -2,12 +2,19 @@
   "name": "workspace",
   "version": "0.0.0",
   "license": "MIT",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.0.0 <25.0.0"
+  },
+  "pnpm": {
+    "strictPeerDependencies": false
+  },
   "scripts": {
     "preinstall": "node -e \"const fs=require('fs');['package-lock.json','yarn.lock'].forEach(f=>{try{fs.unlinkSync(f)}catch{}});if(!(process.env.npm_config_user_agent||'').includes('pnpm/')){console.error('Use pnpm instead');process.exit(1)}\"",
-    "dev": "pnpm --filter @workspace/pdf-translator run dev",
-    "build": "pnpm run typecheck && pnpm -r --if-present run build",
+    "dev": "npx --yes pnpm@9.15.0 --filter @workspace/pdf-translator run dev",
+    "build": "npx --yes pnpm@9.15.0 run typecheck && npx --yes pnpm@9.15.0 -r --if-present run build",
     "typecheck:libs": "tsc --build",
-    "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
+    "typecheck": "npx --yes pnpm@9.15.0 run typecheck:libs && npx --yes pnpm@9.15.0 -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
   "devDependencies": {
