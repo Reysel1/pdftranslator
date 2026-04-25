@@ -208,12 +208,8 @@
   }
 
   html {
-    color-scheme: light;
-    scroll-behavior: smooth;
-  }
-
-  html.dark {
     color-scheme: dark;
+    scroll-behavior: smooth;
   }
 
   body {
@@ -224,35 +220,22 @@
 @layer components {
   .flow-canvas {
     @apply pointer-events-none fixed inset-0 z-0;
+    contain: strict;
     background-color: #f1f1f2;
     background-image: radial-gradient(
-        ellipse 90% 55% at 50% 0%,
-        rgba(0, 0, 0, 0.05) 0%,
-        transparent 48%
-      ),
-      repeating-radial-gradient(
-        circle at 50% 0%,
-        transparent 0,
-        transparent 88px,
-        rgba(0, 0, 0, 0.025) 88px,
-        rgba(0, 0, 0, 0.025) 89px
-      );
+      ellipse 90% 55% at 50% 0%,
+      rgba(0, 0, 0, 0.05) 0%,
+      transparent 48%
+    );
   }
 
   .dark .flow-canvas {
     background-color: #000000;
     background-image: radial-gradient(
-        ellipse 95% 55% at 50% 0%,
-        rgba(255, 255, 255, 0.045) 0%,
-        transparent 45%
-      ),
-      repeating-radial-gradient(
-        circle at 50% 0%,
-        transparent 0,
-        transparent 104px,
-        rgba(255, 255, 255, 0.014) 104px,
-        rgba(255, 255, 255, 0.014) 105px
-      );
+      ellipse 95% 55% at 50% 0%,
+      rgba(255, 255, 255, 0.045) 0%,
+      transparent 45%
+    );
   }
 }
 

@@ -22,13 +22,9 @@ export function storeLocale(l: UiLocale) {
 export type Messages = {
   documentTitle: string;
   brand: string;
-  navSettings: string;
+  navHome: string;
   navGuide: string;
   navPageLang: string;
-  theme: string;
-  themeLight: string;
-  themeDark: string;
-  themeSystem: string;
   heroTitle: string;
   heroBody: string;
   labelTarget: string;
@@ -63,15 +59,11 @@ export type Messages = {
 };
 
 const es: Messages = {
-  documentTitle: "PDF Translator",
+  documentTitle: "PDF Translator — Traduce PDF en el navegador, en privado",
   brand: "PDF Translator",
-  navSettings: "Ajustes",
+  navHome: "Inicio",
   navGuide: "Guía",
   navPageLang: "Página",
-  theme: "Tema",
-  themeLight: "Claro",
-  themeDark: "Oscuro",
-  themeSystem: "Sistema",
   heroTitle: "Traducir documentos",
   heroBody:
     "Elige idioma de destino y, si quieres, un rango de páginas. Sube PDF (uno o varios) y pulsa Traducir cuando estén en la cola. Todo ocurre en tu navegador: el archivo no se envía a nuestro servidor.",
@@ -108,15 +100,11 @@ const es: Messages = {
 };
 
 const en: Messages = {
-  documentTitle: "PDF Translator",
+  documentTitle: "PDF Translator — Translate PDFs in your browser, locally",
   brand: "PDF Translator",
-  navSettings: "Settings",
+  navHome: "Home",
   navGuide: "Guide",
   navPageLang: "Page",
-  theme: "Theme",
-  themeLight: "Light",
-  themeDark: "Dark",
-  themeSystem: "System",
   heroTitle: "Translate documents",
   heroBody:
     "Choose the target language and, if you like, a page range. Upload one or more PDFs and press Translate when they are in the queue. Everything runs in your browser; your file is not uploaded to our server.",
@@ -153,15 +141,11 @@ const en: Messages = {
 };
 
 const fr: Messages = {
-  documentTitle: "PDF Translator",
+  documentTitle: "PDF Translator — Traduire des PDF dans le navigateur, en local",
   brand: "PDF Translator",
-  navSettings: "Réglages",
+  navHome: "Accueil",
   navGuide: "Guide",
   navPageLang: "Page",
-  theme: "Thème",
-  themeLight: "Clair",
-  themeDark: "Sombre",
-  themeSystem: "Système",
   heroTitle: "Traduire des documents",
   heroBody:
     "Choisissez la langue cible et, si besoin, une plage de pages. Ajoutez un ou plusieurs PDF, puis lancez Traduire. Tout se passe dans le navigateur : le fichier n'est pas envoyé sur nos serveurs.",

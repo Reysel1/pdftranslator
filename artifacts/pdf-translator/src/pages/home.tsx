@@ -7,9 +7,6 @@ import {
   RotateCcw,
   AlertCircle,
   Trash2,
-  Moon,
-  Sun,
-  Monitor,
   Plus,
   Globe,
 } from "lucide-react";
@@ -31,7 +28,6 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { usePdfQueue } from "@/hooks/use-pdf-queue";
-import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import {
   getMessages,
@@ -62,48 +58,6 @@ const field =
   "h-11 rounded-xl border border-zinc-200/90 bg-zinc-50 text-zinc-900 shadow-none dark:border-zinc-800/90 dark:bg-[#0a0a0a] dark:text-zinc-100 dark:placeholder:text-zinc-500";
 
 const labelCl = "text-xs font-medium text-zinc-600 dark:text-zinc-400";
-
-function ThemeToggle({ m }: { m: Messages }) {
-  const { setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  if (!mounted) {
-    return <span className="inline-flex h-9 w-9 shrink-0 rounded-full border border-zinc-300 bg-zinc-200/60 dark:border-zinc-700 dark:bg-zinc-800" />;
-  }
-
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          type="button"
-          className="relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/80 bg-zinc-100 text-zinc-800 transition dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          <Sun className="h-[1.1rem] w-[1.1rem] scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
-          <Moon className="absolute h-[1.1rem] w-[1.1rem] scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
-          <span className="sr-only">{m.theme}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="z-[200]">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          <Sun className="mr-2 h-4 w-4" />
-          {m.themeLight}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          <Moon className="mr-2 h-4 w-4" />
-          {m.themeDark}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          <Monitor className="mr-2 h-4 w-4" />
-          {m.themeSystem}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
 
 function PageLanguageMenu({
   value,
@@ -241,7 +195,7 @@ export default function Home() {
                 className="rounded-full px-2.5 py-1.5 text-xs text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300"
                 href="#panel"
               >
-                {m.navSettings}
+                {m.navHome}
               </a>
               <a
                 className="rounded-full px-2.5 py-1.5 text-xs text-zinc-500 transition hover:text-zinc-800 dark:text-zinc-500 dark:hover:text-zinc-300"
@@ -252,7 +206,6 @@ export default function Home() {
             </div>
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <PageLanguageMenu value={uiLocale} onChange={setUiLocale} m={m} />
-              <ThemeToggle m={m} />
             </div>
           </nav>
         </header>

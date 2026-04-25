@@ -1,5 +1,5 @@
 import * as pdfjsLib from "pdfjs-dist";
-import type { PDFDocumentProxy } from "pdfjs-dist";
+import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from "pdfjs-dist";
 import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 
@@ -9,9 +9,103 @@ export const NON_LATIN_LANGUAGES: string[] = [];
 
 const LINE_GROUP_TOLERANCE = 2;
 const YIELD_EVERY_N_PAGES = 4;
-const PAGES_PER_CHUNK = 12;
+const PAGES_PER_CHUNK = 4;
 const MIN_FONT_SIZE_PT = 5;
 const COVER_PADDING_RATIO = 0.18;
+const MAX_RASTER_LONG_SIDE_PX = 1200;
+const RENDER_SCALE_CAP = 1.35;
+const SAMPLE_BORDER_PX = 2;
+
+type Rgb = { r: number; g: number; b: number };
+
+function normalizePdfLibRgb(s: Rgb) {
+  return rgb(s.r / 255, s.g / 255, s.b / 255);
+}
+
+function pickTextColorForBackground(s: Rgb) {
+  const lum = (0.299 * s.r + 0.587 * s.g + 0.114 * s.b) / 255;
+  return lum < 0.42 ? rgb(1, 1, 1) : rgb(0, 0, 0);
+}
+
+function rectFromPdfCorners(
+  viewport: { convertToViewportPoint: (x: number, y: number) => number[] },
+  boxX: number,
+  boxY: number,
+  boxW: number,
+  boxH: number,
+) {
+  const c: [number, number][] = [
+    [boxX, boxY],
+    [boxX + boxW, boxY],
+    [boxX, boxY + boxH],
+    [boxX + boxW, boxY + boxH],
+  ];
+  const canvasPts = c.map(([px, py]) => viewport.convertToViewportPoint(px, py));
+  const xs = canvasPts.map((p) => p[0]!);
+  const ys = canvasPts.map((p) => p[1]!);
+  const l = Math.min(...xs);
+  const r = Math.max(...xs);
+  const t = Math.min(...ys);
+  const b = Math.max(...ys);
+  return {
+    x: l,
+    y: t,
+    w: Math.max(1, r - l),
+    h: Math.max(1, b - t),
+  };
+}
+
+function getViewportForBackgroundSample(srcPage: PDFPageProxy): PageViewport {
+  const base = srcPage.getViewport({ scale: 1 });
+  const long = Math.max(base.width, base.height) || 1;
+  const scale = Math.min(RENDER_SCALE_CAP, MAX_RASTER_LONG_SIDE_PX / long);
+  return srcPage.getViewport({ scale: Math.max(0.22, scale) });
+}
+
+function meanBorderColor(
+  imageData: ImageData,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  band: number,
+): Rgb | null {
+  const { data, width: iw, height: ih } = imageData;
+  const x0 = Math.max(0, Math.floor(x));
+  const y0 = Math.max(0, Math.floor(y));
+  const x1 = Math.min(iw, Math.ceil(x + w));
+  const y1 = Math.min(ih, Math.ceil(y + h));
+  if (x1 <= x0 || y1 <= y0) return null;
+  const b = Math.max(1, Math.min(band, Math.min(x1 - x0, y1 - y0) >> 1));
+  let r = 0;
+  let g = 0;
+  let bsum = 0;
+  let n = 0;
+  for (let py = y0; py < y1; py++) {
+    for (let px = x0; px < x1; px++) {
+      const isBorder = px < x0 + b || px >= x1 - b || py < y0 + b || py >= y1 - b;
+      if (!isBorder) continue;
+      const i = (py * iw + px) * 4;
+      r += data[i] ?? 0;
+      g += data[i + 1] ?? 0;
+      bsum += data[i + 2] ?? 0;
+      n++;
+    }
+  }
+  if (n < 1) {
+    for (let py = y0; py < y1; py++) {
+      for (let px = x0; px < x1; px++) {
+        const i = (py * iw + px) * 4;
+        r += data[i] ?? 0;
+        g += data[i + 1] ?? 0;
+        bsum += data[i + 2] ?? 0;
+        n++;
+      }
+    }
+  }
+  if (n < 1) return null;
+  return { r: r / n, g: g / n, b: bsum / n };
+}
 
 function yieldToMain(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -33,6 +127,7 @@ interface PdfLine {
   width: number;
   height: number;
   fontSize: number;
+  preserve?: boolean;
 }
 
 interface PageData {
@@ -40,6 +135,74 @@ interface PageData {
   pageHeight: number;
   lines: PdfLine[];
   originalPageNumber: number;
+}
+
+function isLikelyUriLikeText(text: string): boolean {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length < 3) return false;
+  if (/\s/.test(t)) {
+    if (
+      t.split(/\s+/).length === 1 &&
+      (t.startsWith("http://") || t.startsWith("https://") || t.startsWith("www."))
+    ) {
+      return true;
+    }
+    return false;
+  }
+  if (/^https?:\/\/\S+$/i.test(t)) return true;
+  if (/^www\.\S+$/i.test(t)) return true;
+  if (/^mailto:\S+@\S+$/i.test(t)) return true;
+  if (/^mailto:\S+$/i.test(t)) return true;
+  if (/^ftp:\/\//i.test(t)) return true;
+  if (/^tel:\+?\d[\d\s\-().]+$/i.test(t)) return true;
+  if (/^(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s]+$/i.test(t)) return true;
+  if (/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(t)) return true;
+  return false;
+}
+
+function linePdfBbox(line: PdfLine) {
+  const fs = line.fontSize;
+  const h = Math.max(line.height, fs);
+  const L = line.x;
+  const R = line.x + line.width;
+  const B = line.y - h * 0.35;
+  const T = line.y + h * 0.8;
+  return { L, R, B, T };
+}
+
+function pdfRectsOverlap(
+  a: { L: number; R: number; B: number; T: number },
+  b: { L: number; R: number; B: number; T: number },
+) {
+  if (a.R < b.L || a.L > b.R) return false;
+  if (a.T < b.B || a.B > b.T) return false;
+  return true;
+}
+
+function markPreservedFromAnnotations(lines: PdfLine[], linkRects: number[][] | undefined) {
+  for (const line of lines) {
+    if (isLikelyUriLikeText(line.text)) {
+      line.preserve = true;
+      continue;
+    }
+    if (!linkRects || linkRects.length === 0) continue;
+    const b = linePdfBbox(line);
+    for (const r of linkRects) {
+      if (r.length < 4) continue;
+      const L = r[0] ?? 0;
+      const B = r[1] ?? 0;
+      const R = r[2] ?? 0;
+      const T = r[3] ?? 0;
+      const Ln = Math.min(L, R);
+      const Rx = Math.max(L, R);
+      const Bn = Math.min(B, T);
+      const Tn = Math.max(B, T);
+      if (pdfRectsOverlap(b, { L: Ln, R: Rx, B: Bn, T: Tn })) {
+        line.preserve = true;
+        break;
+      }
+    }
+  }
 }
 
 function groupItemsIntoLines(items: PdfTextItem[]): PdfLine[] {
@@ -128,6 +291,17 @@ async function extractPageData(pdf: PDFDocumentProxy, pageNum: number): Promise<
   const page = await pdf.getPage(pageNum);
   const viewport = page.getViewport({ scale: 1 });
   const textContent = await page.getTextContent();
+  let linkRects: number[][] = [];
+  try {
+    const annotations = await page.getAnnotations();
+    for (const a of annotations) {
+      if (a.subtype === "Link" && Array.isArray(a.rect) && a.rect.length >= 4) {
+        linkRects.push(a.rect as number[]);
+      }
+    }
+  } catch {
+    linkRects = [];
+  }
   const items: PdfTextItem[] = [];
   for (const raw of textContent.items) {
     if (!("str" in raw)) continue;
@@ -158,6 +332,7 @@ async function extractPageData(pdf: PDFDocumentProxy, pageNum: number): Promise<
   }
 
   const lines = groupItemsIntoLines(items);
+  markPreservedFromAnnotations(lines, linkRects);
   return {
     pageWidth: viewport.width,
     pageHeight: viewport.height,
@@ -263,13 +438,19 @@ export async function translateOnePdf({
         onProgress?.(globalIdx + 1, n, "translating");
         continue;
       }
-      const translatedLines = await translator(
-        page.lines.map((l) => l.text),
-        targetLang,
-        "auto",
-      );
+      const translateIdx: number[] = [];
+      const batch: string[] = [];
       for (let j = 0; j < page.lines.length; j++) {
-        const t = translatedLines[j] ?? page.lines[j]!.text;
+        if (page.lines[j]!.preserve) continue;
+        translateIdx.push(j);
+        batch.push(page.lines[j]!.text);
+      }
+      const translatedBatch =
+        batch.length > 0 ? await translator(batch, targetLang, "auto") : [];
+      let bi = 0;
+      for (const j of translateIdx) {
+        const t = translatedBatch[bi] ?? page.lines[j]!.text;
+        bi++;
         page.lines[j]!.text = sanitizeForWinAnsi(t);
       }
       translatedPagePlain[globalIdx] = page.lines.map((l) => l.text).join("\n");
@@ -288,22 +469,53 @@ export async function translateOnePdf({
       const globalIdx = chunkStart + k;
       const pdfPage = outDoc.getPage(page.originalPageNumber - 1);
 
+      const srcPage = await pdf.getPage(page.originalPageNumber);
+      const view = getViewportForBackgroundSample(srcPage);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.floor(view.width);
+      canvas.height = Math.floor(view.height);
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      let imageData: ImageData | null = null;
+      if (ctx) {
+        try {
+          await srcPage.render({ canvasContext: ctx, viewport: view, canvas }).promise;
+          imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        } catch {
+          imageData = null;
+        }
+      }
+      try {
+        srcPage.cleanup();
+      } catch {
+        // ignore
+      }
+
       for (const line of page.lines) {
         if (!line.text) continue;
+        if (line.preserve) continue;
 
         const padding = Math.max(line.fontSize * COVER_PADDING_RATIO, 1);
         const boxX = line.x - padding;
         const boxY = line.y - padding;
         const boxWidth = line.width + padding * 2;
-        const boxHeight = line.fontSize + padding * 2;
+        const lineH = Math.max(line.fontSize, line.height);
+        const boxHeight = lineH + padding * 2;
 
-        // Cover the original glyphs with an opaque white rectangle.
+        const pr = rectFromPdfCorners(view, boxX, boxY, boxWidth, boxHeight);
+        const bgSample =
+          imageData !== null
+            ? meanBorderColor(imageData, pr.x, pr.y, pr.w, pr.h, SAMPLE_BORDER_PX)
+            : null;
+        const bgRgb: Rgb = bgSample ?? { r: 255, g: 255, b: 255 };
+        const fillColor = normalizePdfLibRgb(bgRgb);
+        const textColor = pickTextColorForBackground(bgRgb);
+
         pdfPage.drawRectangle({
           x: boxX,
           y: boxY,
           width: boxWidth,
           height: boxHeight,
-          color: rgb(1, 1, 1),
+          color: fillColor,
           borderWidth: 0,
         });
 
@@ -318,11 +530,9 @@ export async function translateOnePdf({
             y: line.y,
             size,
             font: helvetica,
-            color: rgb(0, 0, 0),
+            color: textColor,
           });
         } else {
-          // Translation is too long even at min size. Wrap onto multiple
-          // sublines using the original font size as the line height.
           size = MIN_FONT_SIZE_PT;
           const wrapped = wrapText(helvetica, line.text, maxWidth, size);
           const lineHeight = size * 1.1;
@@ -333,17 +543,19 @@ export async function translateOnePdf({
               y,
               size,
               font: helvetica,
-              color: rgb(0, 0, 0),
+              color: textColor,
             });
             y -= lineHeight;
           }
         }
       }
 
+      imageData = null;
+      canvas.width = 0;
+      canvas.height = 0;
+
       onProgress?.(globalIdx + 1, n, "rendering");
-      if (k % YIELD_EVERY_N_PAGES === YIELD_EVERY_N_PAGES - 1 && k < pages.length - 1) {
-        await yieldToMain();
-      }
+      await yieldToMain();
     }
 
     pages.length = 0;

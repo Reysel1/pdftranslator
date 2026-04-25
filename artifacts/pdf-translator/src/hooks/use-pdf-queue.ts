@@ -3,6 +3,26 @@ import { translateOnePdf } from "./use-pdf-translator";
 import JSZip from "jszip";
 import { useToast } from "@/hooks/use-toast";
 
+const REVOKE_BLOB_URL_MS = 30_000;
+
+function triggerFileDownloadFromBlobUrl(url: string, fileName: string) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.rel = "noopener";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  window.setTimeout(() => {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore
+    }
+  }, REVOKE_BLOB_URL_MS);
+}
+
 export interface QueueItem {
   id: string;
   file: File;
@@ -13,7 +33,7 @@ export interface QueueItem {
   error?: string;
 }
 
-const TRANSLATE_CONCURRENCY = 16;
+const TRANSLATE_CONCURRENCY = 3;
 const MAX_BATCH_CHARS = 3800;
 const LINE_SEP = "\n";
 
@@ -259,12 +279,14 @@ export function usePdfQueue() {
 
     if (doneItems.length === 1) {
       const item = doneItems[0]!;
-      const url = URL.createObjectURL(item.translatedBlob!);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${item.file.name.replace(/\.pdf$/i, "")}-translated.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
+      const blob = item.translatedBlob!;
+      if (blob.size === 0) {
+        toast({ title: "Empty file", description: "The PDF is empty. Try translating again.", variant: "destructive" });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const name = `${item.file.name.replace(/\.pdf$/i, "")}-translated.pdf`;
+      triggerFileDownloadFromBlobUrl(url, name);
       return;
     }
 
@@ -275,24 +297,28 @@ export function usePdfQueue() {
     }
 
     const blob = await zip.generateAsync({ type: "blob" });
+    if (blob.size === 0) {
+      toast({ title: "Empty ZIP", description: "Could not build the archive. Try again.", variant: "destructive" });
+      return;
+    }
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `translated-pdfs.zip`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [queue]);
+    triggerFileDownloadFromBlobUrl(url, "translated-pdfs.zip");
+  }, [queue, toast]);
 
-  const downloadItem = useCallback((id: string) => {
-    const item = queue.find((i) => i.id === id);
-    if (!item || !item.translatedBlob) return;
-    const url = URL.createObjectURL(item.translatedBlob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${item.file.name.replace(/\.pdf$/i, "")}-translated.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [queue]);
+  const downloadItem = useCallback(
+    (id: string) => {
+      const item = queue.find((i) => i.id === id);
+      if (!item || !item.translatedBlob) return;
+      if (item.translatedBlob.size === 0) {
+        toast({ title: "Empty file", description: "The PDF is empty. Try translating again.", variant: "destructive" });
+        return;
+      }
+      const url = URL.createObjectURL(item.translatedBlob);
+      const name = `${item.file.name.replace(/\.pdf$/i, "")}-translated.pdf`;
+      triggerFileDownloadFromBlobUrl(url, name);
+    },
+    [queue, toast],
+  );
 
   return {
     queue,
