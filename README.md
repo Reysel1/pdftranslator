@@ -1,3 +1,7 @@
+# Web
+
+ [PDF Translator (https://pdftranslator-g6t0.onrender.com/)]
+
 # PDF Translator
 
 Aplicación web (React + Vite) que traduce archivos **PDF** en el **navegador**: extrae el texto, lo traduce y genera un PDF con el resultado. Los archivos se procesan en tu equipo; no se suben a un backend propio del proyecto.
