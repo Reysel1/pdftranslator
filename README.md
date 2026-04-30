@@ -1,6 +1,6 @@
 # Web
 
- [PDF Translator] (https://pdftranslator-g6t0.onrender.com/)
+ [PDF Translator](https://pdftranslator-g6t0.onrender.com/)
 
 # PDF Translator
 
