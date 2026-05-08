@@ -51,3 +51,5 @@ Thumbs.db
 
 # Local tool downloads (e.g. portable GitHub CLI)
 .tools/
+.vercel
+.env*.local
