@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useCallback, useRef, startTransition } from "react";
 import { translateOnePdf } from "./use-pdf-translator";
 import JSZip from "jszip";

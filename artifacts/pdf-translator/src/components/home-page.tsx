@@ -1,3 +1,5 @@
+"use client";
+
 import { useState, useRef, useEffect } from "react";
 import {
   FileText,
@@ -110,7 +112,7 @@ function FileUploadGlyph({ className }: { className?: string }) {
   );
 }
 
-export default function Home() {
+export default function HomePage() {
   const [uiLocale, setUiLocale] = useState<UiLocale>(() => readStoredLocale());
   const [isDragging, setIsDragging] = useState(false);
   const [targetLang, setTargetLang] = useState<string>("es");

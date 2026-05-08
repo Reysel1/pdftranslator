@@ -12,8 +12,7 @@
   "scripts": {
     "preinstall": "node -e \"const fs=require('fs');['package-lock.json','yarn.lock'].forEach(f=>{try{fs.unlinkSync(f)}catch{}});if(!(process.env.npm_config_user_agent||'').includes('pnpm/')){console.error('Use pnpm instead');process.exit(1)}\"",
     "dev": "npx --yes pnpm@9.15.0 --filter @workspace/pdf-translator run dev",
-    "render:build": "node ./render-build.mjs",
-    "start": "npx --yes serve@14 -s ./artifacts/pdf-translator/dist/public",
+    "start": "npx --yes pnpm@9.15.0 --filter @workspace/pdf-translator run start",
     "build": "npx --yes pnpm@9.15.0 run typecheck && npx --yes pnpm@9.15.0 -r --if-present run build",
     "typecheck:libs": "npx tsc --build",
     "typecheck": "npx --yes pnpm@9.15.0 run typecheck:libs && npx --yes pnpm@9.15.0 -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"

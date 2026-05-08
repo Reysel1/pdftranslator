@@ -66,7 +66,6 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* LIGHT — gris claro (no blanco puro) para leer y separar bloques */
 :root {
   --button-outline: rgba(0, 0, 0, 0.1);
   --badge-outline: rgba(0, 0, 0, 0.04);
@@ -145,7 +144,6 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
-/* DARK — negro puro, contraste tipo landing premium */
 .dark {
   --button-outline: rgba(255, 255, 255, 0.1);
   --badge-outline: rgba(255, 255, 255, 0.05);

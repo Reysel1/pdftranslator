@@ -1,9 +1,14 @@
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy, PageViewport } from "pdfjs-dist";
-import pdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { PDFDocument, StandardFonts, rgb, type PDFFont } from "pdf-lib";
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
+let pdfWorkerConfigured = false;
+
+function ensurePdfJsWorker() {
+  if (typeof window === "undefined" || pdfWorkerConfigured) return;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  pdfWorkerConfigured = true;
+}
 
 export const NON_LATIN_LANGUAGES: string[] = [];
 
@@ -389,6 +394,7 @@ export async function translateOnePdf({
   pageRange,
   onProgress,
 }: TranslatePdfOptions): Promise<{ blob: Blob; plainTexts: string[] }> {
+  ensurePdfJsWorker();
   const arrayBuffer = await file.arrayBuffer();
 
   // pdf-lib mutates the buffer it loads, and we also need it for pdfjs.
