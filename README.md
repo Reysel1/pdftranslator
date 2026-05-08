@@ -72,7 +72,7 @@ Next.js aplicará ese `basePath` en rutas y activos estáticos.
 4. **Build Command**: `pnpm run build` (ya está en `artifacts/pdf-translator/vercel.json`; evita `next build` suelto, que falla con *command not found* porque `next` no está en el `PATH` global).
 5. **Output**: lo infiere Vercel para Next.js (no uses el antiguo `dist` de Vite).
 
-Si en Vercel el directorio raíz del proyecto es la **raíz del monorepo**, configura allí `build` con filtro al paquete y ajusta la detección de framework, o mueve el proyecto Vercel al subdirectorio como arriba.
+Si el despliegue dice que **no detecta Next.js**, comprueba que el **Root Directory** sea exactamente `artifacts/pdf-translator` (donde está el `package.json` con `next`). Vercel no entiende bien la entrada `"next": "catalog:"`; en este repo `next` va **pinado** con versión semver para que el detector funcione.
 
 ## Cómo usar la aplicación
 
